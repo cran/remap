@@ -53,31 +53,28 @@
 #'
 #' @examples
 #' library(remap)
-#' library(sf)
 #' data(utsnow)
 #' data(utws)
 #'
-#' # Reset CRS in case user has old version of GDAL
-#' sf::st_crs(utsnow) <- 4326
-#' sf::st_crs(utws) <- 4326
+#' # We will keep these examples simple by only modeling non-zero values of
+#' # snow water equivalent (WESD)
 #'
-#' # Simplify polygons to run example faster
-#' utws_simp <- sf::st_simplify(utws, dTolerance = 0.01)
+#' utsnz <- utsnow[utsnow$WESD > 0, ]
 #'
-#' # Build a remap model with lm that has formula snow_water = elevation
+#' # Build a remap model with lm that has formula WESD ~ ELEVATION
 #' # The buffer to collect data around each region is 30km
 #' # The minimum number of observations per region is 10
-#' remap_model <- remap(data = utsnow,
-#'                      regions = utws_simp,
+#' remap_model <- remap(data = utsnz,
+#'                      regions = utws,
 #'                      region_id = HUC2,
 #'                      model_function = lm,
-#'                      formula = WESD ~ ELEVATION,
+#'                      formula = log(WESD) ~ ELEVATION,
 #'                      buffer = 20,
 #'                      min_n = 10,
 #'                      progress = TRUE)
 #'
 #' # Resubstitution predictions
-#' remap_preds <- predict(remap_model, utsnow, smooth = 10)
+#' remap_preds <- exp(predict(remap_model, utsnz, smooth = 10))
 #' head(remap_preds)
 #'
 #' @export
@@ -162,8 +159,8 @@ remap <- function(data, regions, region_id, model_function, buffer, min_n = 1,
 
     parallel::stopCluster(clusters)
 
-  # Find models for each region id (single core)
-  # ============================================================================
+    # Find models for each region id (single core)
+    # ============================================================================
   } else {
     models <- list()
 
@@ -223,17 +220,22 @@ remap <- function(data, regions, region_id, model_function, buffer, min_n = 1,
 #' internally if not provided).
 #' @param cores Number of cores for parallel computing. 'cores' above
 #' default of 1 will require more memory.
-#' @param progress If true, a text progress bar is printed to the console.
+#' @param progress If TRUE, a text progress bar is printed to the console.
 #' (Progress bar only appears if 'cores' = 1.)
+#' @param se If TRUE, predicted values are assumed to be standard errors and
+#' an upper bound of combined model standard errors are calculated at each
+#' prediction location. Should stay FALSE unless predicted values from remap are
+#' standard error values.
 #' @param ... Arguments to pass to individual model prediction functions.
 #'
-#' @return Predictions in the form of a numeric vector.
+#' @return Predictions in the form of a numeric vector. If se is TRUE,
+#' upper bound for combined standard errors in the form of a numeric vector.
 #'
 #' @seealso \code{\link{remap}} building a regional model.
 #'
 #' @export
 predict.remap <- function(object, data, smooth, distances, cores = 1,
-                          progress = FALSE, ...) {
+                          progress = FALSE, se = FALSE, ...) {
   # Check input
   # ============================================================================
   check_input(data = data, cores = cores, distances = distances)
@@ -269,8 +271,8 @@ predict.remap <- function(object, data, smooth, distances, cores = 1,
 
     parallel::clusterExport(clusters,
                             c(unlist(lapply(search(), function(x) {
-                                objects(x, pattern = "predict")
-                              }))),
+                              objects(x, pattern = "predict")
+                            }))),
                             envir = environment())
 
     pred_list <- parallel::parLapply(
@@ -294,17 +296,16 @@ predict.remap <- function(object, data, smooth, distances, cores = 1,
 
   # Make predictions (if single core) and smooth to final output
   # ============================================================================
-  output <- rep(NA_real_, nrow(data))
+  output <- rep(0, nrow(data))
   weightsum <- rep(0, nrow(data))
+  if (se) wsesum <- rep(0, nrow(data))
 
   if (progress) {
     pb <- utils::txtProgressBar(min = 0, max = length(id_list), style = 3)
     i <- 1
   }
 
-  # use running weighted average
-  #   \mew_1 = x_1
-  #   \mew_k = \mew_{k-1} + (w_k / \sum_1^k{w_i}) * (x_k - \mew_{k-1})
+  # get weighted sum
   for (id in id_list) {
     # only consider values within smoothing range
     indices <- distances[, id] <= smooth[[id]] & !is.na(distances[, id])
@@ -326,13 +327,20 @@ predict.remap <- function(object, data, smooth, distances, cores = 1,
     }
     weightsum[indices] <- weightsum[indices] + weight
 
-    # update output (k > 1)
-    output[indices] <- output[indices] +
-      (weight / weightsum[indices]) * (preds - output[indices])
-
-    # update output (k == 1)
-    starting <- indices & is.na(output)
-    output[starting] <- preds[starting[indices]]
+    # update output
+    if (se) {
+      if (any(preds < 0)) {
+        warning(sum(preds < 0), " standard error values less than 0 returned ",
+                "for region ", id, ". These values will be assumed to be 0.")
+        preds[preds < 0] <- 0
+      }
+      # https://github.com/jadonwagstaff/remap/blob/main/support_docs/se_algorithm.pdf
+      wse <- weight * preds
+      output[indices] <- output[indices] + wse * (wse + 2 * wsesum[indices])
+      wsesum[indices] <- wsesum[indices] + wse
+    } else {
+      output[indices] <- output[indices] + weight * preds
+    }
 
     # update progress bar
     if (progress) {
@@ -341,7 +349,18 @@ predict.remap <- function(object, data, smooth, distances, cores = 1,
     }
   }
 
+  # get weighted average
+  if (se) output <- sqrt(output)
+  output <- output / weightsum
+
+  # make sure 0 weightsum values are NA
+  output[weightsum == 0] <- NA_real_
+
   if (progress) cat("\n")
+  if (se) cat("Upper bound for standard error calculated at each location.",
+              "\nReminder: make sure that the predict function outputs",
+              "a vector of standard error values for each regional model in",
+              "your remap object.\n")
 
   return(output)
 }

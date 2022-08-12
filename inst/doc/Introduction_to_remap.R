@@ -17,14 +17,9 @@ library(remap)
 data(utsnow)
 data(utws)
 
-# Reset CRS in case user has old version of GDAL 
-sf::st_crs(utsnow) <- 4326
-sf::st_crs(utws) <- 4326
-
 ## ----initial_map, fig.width = 6, fig.height = 6, fig.align='center'-----------
-utstate <- maps::map("state", plot = FALSE, fill = TRUE) %>%
+utstate <- maps::map("state", region = "utah", plot = FALSE, fill = TRUE) %>%
   sf::st_as_sf() %>%
-  dplyr::filter(ID == "utah") %>%
   sf::st_transform(crs = 4326)
 
 ggplot(utws, aes(fill = HUC2)) +
@@ -81,7 +76,7 @@ round(difftime(t2, t1), 1)
 sapply(lm_huc2$models, function(x) x$coefficients)
 
 ## ----polygons, fig.width = 6, fig.height = 4, fig.align='center'--------------
-utws_simp <- utws %>% sf::st_simplify(dTolerance = 0.05)
+utws_simp <- utws %>% sf::st_simplify(dTolerance = 5000)
 
 rbind(
   utws %>% dplyr::mutate(TYPE = "Original Watershed Polygons"),
@@ -129,14 +124,18 @@ gam_limit <- function(data, fml) {
   return(out)
 }
 
-predict.gam_limit <- function(object, newobs) {
+predict.gam_limit <- function(object, newobs, se.fit = FALSE) {
   if (nrow(newobs) != 0) {
-    preds <- predict(object$g_model, newobs)
+    if (se.fit) {
+      return(predict(object$g_model, newobs, se.fit = TRUE)$se.fit)
+    } else {
+      preds <- predict(object$g_model, newobs)
     
-    preds[preds < 0] <- 0
-    preds[preds > object$upper_lim] <- object$upper_lim
-    
-    return(preds)
+      preds[preds < 0] <- 0
+      preds[preds > object$upper_lim] <- object$upper_lim
+      
+      return(preds)
+    }
   }
   return(NULL)
 }
@@ -195,6 +194,19 @@ for (i in 1:10) {
 # Calculate MSE
 gam_huc2_mse <- mean((utsnow$WESD - gam_huc2_preds)^2)
 gam_huc2_mse
+
+## ----gam_error----------------------------------------------------------------
+gam_huc2 <- remap::remap(
+    utsnow, utws, region_id = HUC2,
+    model_function = gam_limit, 
+    buffer = 20, min_n = 35,
+    distances = huc2_dist,
+    fml = gam_huc2_fml
+  )
+
+predict(gam_huc2, utsnow[1:3, ], smooth = 25)
+
+predict(gam_huc2, utsnow[1:3, ], smooth = 25, se = TRUE, se.fit = TRUE)
 
 ## ----toy----------------------------------------------------------------------
 # Make regions

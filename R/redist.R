@@ -29,21 +29,13 @@
 #'
 #' @examples
 #' library(remap)
-#' library(sf)
 #' data(utsnow)
 #' data(utws)
-#'
-#' # Reset CRS in case user has old version of GDAL
-#' sf::st_crs(utsnow) <- 4326
-#' sf::st_crs(utws) <- 4326
-#'
-#' # Simplify polygons to run example faster
-#' utws_simp <- sf::st_simplify(utws, dTolerance = 0.01)
 #'
 #' # Build a matrix of distances between objects of utsnow and utws
 #' # We will not set max_dist, so all distances will be found
 #' dists <- redist(data = utsnow,
-#'                 regions = utws_simp,
+#'                 regions = utws,
 #'                 region_id = HUC2)
 #'
 #' head(dists)
@@ -181,7 +173,7 @@ single_core_dist <- function(points, polygons, index, progress, ...) {
     }
 
     # compute distances by column
-    for (i in 1:length(polygons)) {
+    for (i in seq_along(polygons)) {
 
       # add to distance matrix
       if (missing(index)) {
@@ -234,7 +226,7 @@ multi_core_dist <- function(points, polygons, index, cores, ...) {
   if (missing(index)) {
     d <- parallel::parLapply(
       cl = clusters,
-      X = as.list(1:length(polygons)),
+      X = as.list(seq_along(polygons)),
       fun = function(x) distance_wrapper(points, polygons[x])
     )
   # Compute distances by polygon with index
@@ -242,7 +234,7 @@ multi_core_dist <- function(points, polygons, index, cores, ...) {
   } else {
     d <- parallel::parLapply(
       cl = clusters,
-      X = 1:length(polygons),
+      X = seq_along(polygons),
       fun = function(x) {
         col <- rep(NA_real_, nrow(points))
         col[index[, x]] <- distance_wrapper(points[index[, x], ], polygons[x])
