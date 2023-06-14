@@ -5,8 +5,6 @@ knitr::opts_chunk$set(
 )
 
 ## ----setup, message=FALSE, warning=FALSE--------------------------------------
-library(magrittr) # For pipe %>% functionality
-library(tibble)   # For light data wrangling
 library(dplyr)    # For light data wrangling
 library(ggplot2)  # For plots
 library(maps)     # For a polygon of the state of Utah
@@ -18,8 +16,8 @@ data(utsnow)
 data(utws)
 
 ## ----initial_map, fig.width = 6, fig.height = 6, fig.align='center'-----------
-utstate <- maps::map("state", region = "utah", plot = FALSE, fill = TRUE) %>%
-  sf::st_as_sf() %>%
+utstate <- maps::map("state", region = "utah", plot = FALSE, fill = TRUE) |>
+  sf::st_as_sf() |>
   sf::st_transform(crs = 4326)
 
 ggplot(utws, aes(fill = HUC2)) +
@@ -31,7 +29,7 @@ ggplot(utws, aes(fill = HUC2)) +
   theme_void()
 
 ## ----utsnz--------------------------------------------------------------------
-utsnz <- utsnow %>% dplyr::filter(WESD > 0)
+utsnz <- utsnow |> dplyr::filter(WESD > 0)
 
 ## ----wesd_elev, fig.width = 5, fig.height = 2, fig.align='center'-------------
 ggplot(utsnz, aes(x = ELEVATION, y = WESD)) +
@@ -57,7 +55,7 @@ ggplot(utsnz, aes(x = ELEVATION, y = WESD)) +
 ## ----lm_huc2, message=FALSE---------------------------------------------------
 t1 <- Sys.time()
 lm_huc2 <- remap::remap(
-  utsnz, utws, region_id = HUC2, 
+  utsnz, utws,
   buffer = 20, min_n = 10,
   model_function = lm, 
   formula = log(WESD) ~ ELEVATION
@@ -76,12 +74,12 @@ round(difftime(t2, t1), 1)
 sapply(lm_huc2$models, function(x) x$coefficients)
 
 ## ----polygons, fig.width = 6, fig.height = 4, fig.align='center'--------------
-utws_simp <- utws %>% sf::st_simplify(dTolerance = 5000)
+utws_simp <- utws |> sf::st_simplify(dTolerance = 5000)
 
 rbind(
-  utws %>% dplyr::mutate(TYPE = "Original Watershed Polygons"),
-  utws_simp %>% dplyr::mutate(TYPE = "Simplified Watershed Polygons")
-) %>%
+  utws |> dplyr::mutate(TYPE = "Original Watershed Polygons"),
+  utws_simp |> dplyr::mutate(TYPE = "Simplified Watershed Polygons")
+) |>
 ggplot() +
   facet_grid(.~TYPE) +
   geom_sf() +
@@ -210,13 +208,16 @@ predict(gam_huc2, utsnow[1:3, ], smooth = 25, se = TRUE, se.fit = TRUE)
 
 ## ----toy----------------------------------------------------------------------
 # Make regions
-toy_regions <- tibble::tribble(
-  ~id, ~geometry,
-  "a", sf::st_polygon(list(matrix(c(0, 0, 2, 0, 6, 3, 4, 10, 0, 10, 0, 0)*.1, ncol = 2, byrow = TRUE))),
-  "b", sf::st_polygon(list(matrix(c(2, 0, 10, 0, 10, 4, 6, 3, 2, 0)*.1, ncol = 2, byrow = TRUE))),
-  "c", sf::st_polygon(list(matrix(c(4, 10, 6, 3, 10, 4, 10, 10, 4, 10)*.1, ncol = 2, byrow = TRUE)))
-) %>%
-  sf::st_as_sf(crs = 4326)
+toy_regions <- sf::st_sf(
+  id = c("a", "b", "c"),
+  geometry = sf::st_sfc(
+    sf::st_polygon(list(matrix(c(0, 0, 2, 0, 6, 3, 4, 10, 0, 10, 0, 0)*.1, 
+                               ncol = 2, byrow = TRUE))),
+    sf::st_polygon(list(matrix(c(2, 0, 10, 0, 10, 4, 6, 3, 2, 0)*.1, 
+                               ncol = 2, byrow = TRUE))),
+    sf::st_polygon(list(matrix(c(4, 10, 6, 3, 10, 4, 10, 10, 4, 10)*.1, 
+                               ncol = 2, byrow = TRUE)))),
+  crs = 4326)
 
 # Manually make a toy remap model
 make_toy <- function(x) {
@@ -246,7 +247,7 @@ predict.toy_model <- function(object, data) {
 }
 
 # Make a grid over the regions for predictions
-grd <- sf::st_make_grid(toy_regions, cellsize = .01, what = "corners") %>%
+grd <- sf::st_make_grid(toy_regions, cellsize = .01, what = "corners") |>
   sf::st_sf()
 
 ## ----toy_regions, fig.width = 4, fig.height = 4, fig.align='center'-----------
@@ -256,11 +257,11 @@ ggplot2::ggplot(toy_regions, aes(fill = id)) +
     theme_bw()
 
 ## ----grid---------------------------------------------------------------------
-grd_pred <- grd %>%
+grd_pred <- grd |>
   dplyr::mutate(SHARP = predict(remap_toy_model, grd, smooth = 0),
                 SMOOTH = predict(remap_toy_model, grd, smooth = 30),
-                LON = sf::st_coordinates(.)[, "X"],
-                LAT = sf::st_coordinates(.)[, "Y"])
+                LON = sf::st_coordinates(grd)[, "X"],
+                LAT = sf::st_coordinates(grd)[, "Y"])
 
 ## ----sharp, fig.width = 5, fig.height = 4, fig.align='center'-----------------
 ggplot(toy_regions) +
@@ -273,7 +274,7 @@ ggplot(toy_regions) +
   theme_bw()
 
 ## ----sharp08, fig.width = 4, fig.height = 2.5, fig.align='center'-------------
-ggplot(grd_pred %>% dplyr::filter(LAT == 0.8),
+ggplot(grd_pred |> dplyr::filter(LAT == 0.8),
          aes(x = LON, y = SHARP)) +
   geom_line(size = 1) +
   ggtitle("Sharp Predictions at 0.8 degrees N") +
@@ -290,7 +291,7 @@ ggplot(toy_regions) +
   theme_bw()
 
 ## ----smooth08, fig.width = 4, fig.height = 2.5, fig.align='center'------------
-ggplot(grd_pred %>% dplyr::filter(LAT == 0.8),
+ggplot(grd_pred |> dplyr::filter(LAT == 0.8),
          aes(x = LON, y = SMOOTH)) +
   geom_line(size = 1) +
   ggtitle("Smooth Predictions at 0.8 degrees N") +
