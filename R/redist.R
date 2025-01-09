@@ -34,15 +34,23 @@
 #'
 #' # Build a matrix of distances between objects of utsnow and utws
 #' # We will not set max_dist, so all distances will be found
-#' dists <- redist(data = utsnow,
-#'                 regions = utws,
-#'                 region_id = HUC2)
+#' dists <- redist(
+#'   data = utsnow,
+#'   regions = utws,
+#'   region_id = HUC2
+#' )
 #'
 #' head(dists)
 #'
 #' @export
-redist <- function(data, regions, region_id, max_dist, cores = 1,
-                   progress = FALSE) {
+redist <- function(
+    data,
+    regions,
+    region_id,
+    max_dist,
+    cores = 1,
+    progress = FALSE
+  ) {
   # Check input
   # ============================================================================
   check_input(data = data, cores = cores, regions = regions)
@@ -78,9 +86,11 @@ redist <- function(data, regions, region_id, max_dist, cores = 1,
       units(max_dist) <- units::as_units("degrees")
       # check to make sure  the distance isn't too large
       if (as.numeric(max(max_dist)) + max_lat > 90) {
-        warning("At least one 'data' point is too close to a pole for the",
-                "requested 'max_dist'. Reverting back to finding all",
-                "distances.")
+        warning(
+          "At least one 'data' point is too close to a pole for the",
+          "requested 'max_dist'. Reverting back to finding all",
+          "distances."
+        )
         max_dist <- NULL
       }
     }
@@ -92,10 +102,12 @@ redist <- function(data, regions, region_id, max_dist, cores = 1,
   if (missing(max_dist) || is.null(max_dist)) {
     if (progress) cat("Finding regional distances...\n")
 
-    distances <- dist_fun(points = data,
-                          polygons = regions,
-                          cores = cores,
-                          progress = progress)
+    distances <- dist_fun(
+      points = data,
+      polygons = regions,
+      cores = cores,
+      progress = progress
+    )
   } else {
     if (progress) cat("Building buffer to reduce computation...\n")
 
@@ -113,19 +125,25 @@ redist <- function(data, regions, region_id, max_dist, cores = 1,
 
     if (progress) cat("Finding regional distances...\n")
 
-    distances <- dist_fun(points = data,
-                          polygons = regions,
-                          index = buffer_indices,
-                          cores = cores,
-                          progress = progress)
+    distances <- dist_fun(
+      points = data,
+      polygons = regions,
+      index = buffer_indices,
+      cores = cores,
+      progress = progress
+    )
 
     # find all distances in places where all regions are out of buffer
     too_far <- apply(distances, 1, function(x) all(is.na(x)))
 
-    distances[too_far, ] <- dist_fun(points = data[too_far, ],
-                                     polygons = regions,
-                                     cores = cores,
-                                     progress = FALSE)
+    if (sum(too_far) > 0) {
+      distances[too_far, ] <- dist_fun(
+        points = data[too_far, ],
+        polygons = regions,
+        cores = cores,
+        progress = FALSE
+      )
+    }
 
   }
 
@@ -179,7 +197,12 @@ single_core_dist <- function(points, polygons, index, progress, ...) {
       if (missing(index)) {
         d[, i] <- distance_wrapper(points, polygons[i])
       } else {
-        d[index[, i], i] <- distance_wrapper(points[index[, i], ], polygons[i])
+        if (sum(index[, i]) > 0) {
+          d[index[, i], i] <- distance_wrapper(
+            points[index[, i], ],
+            polygons[i]
+          )
+        }
       }
 
       # update progress
@@ -217,13 +240,15 @@ multi_core_dist <- function(points, polygons, index, cores, ...) {
   # set up parallel computing
   clusters <- parallel::makeCluster(cores)
 
-  parallel::clusterExport(cl = clusters,
-                          varlist = "distance_wrapper",
-                          envir = environment())
-
   # Compute distances by polygon with no index
   # ============================================================================
   if (missing(index)) {
+    parallel::clusterExport(
+      cl = clusters,
+      varlist = c("points", "polygons", "distance_wrapper"),
+      envir = environment()
+    )
+
     d <- parallel::parLapply(
       cl = clusters,
       X = as.list(seq_along(polygons)),
@@ -232,12 +257,20 @@ multi_core_dist <- function(points, polygons, index, cores, ...) {
   # Compute distances by polygon with index
   # ============================================================================
   } else {
+    parallel::clusterExport(
+      cl = clusters,
+      varlist = c("points", "polygons", "index", "distance_wrapper"),
+      envir = environment()
+    )
+
     d <- parallel::parLapply(
       cl = clusters,
       X = seq_along(polygons),
       fun = function(x) {
         col <- rep(NA_real_, nrow(points))
-        col[index[, x]] <- distance_wrapper(points[index[, x], ], polygons[x])
+        if (sum(index[, x]) > 0) {
+          col[index[, x]] <- distance_wrapper(points[index[, x], ], polygons[x])
+        }
         return(col)
       }
     )
@@ -273,10 +306,12 @@ distance_wrapper <- function(points, polygons) {
     units::as_units("km")
   },
   error = function(e) {
-    stop(e,
-         "Distances returned by sf::st_distance is not a unit convertible",
-         "to kilometers. Try transforming 'data' and 'regions' object",
-         "using sf::st_transform.")
+    stop(
+      e,
+      "Distances returned by sf::st_distance is not a unit convertible",
+      "to kilometers. Try transforming 'data' and 'regions' object",
+      "using sf::st_transform."
+    )
   })
 
   return(d)

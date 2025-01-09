@@ -1,4 +1,4 @@
-## ---- include = FALSE---------------------------------------------------------
+## ----include = FALSE----------------------------------------------------------
 knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>"
@@ -168,7 +168,8 @@ huc2_dist <- remap::redist(utsnow, utws, region_id = HUC2)
 gam_huc2_preds <- rep(as.numeric(NA), nrow(utsnow))
 
 # Formula for regional GAMs
-gam_huc2_fml <- WESD ~ s(ELEVATION, k = 5) + s(LATITUDE, LONGITUDE, bs = "sos", k = 25)
+gam_huc2_fml <- WESD ~ s(ELEVATION, k = 5) + 
+  s(LATITUDE, LONGITUDE, bs = "sos", k = 25)
 
 # Build and test models with 10 fold cross-validation
 for (i in 1:10) {
@@ -276,7 +277,7 @@ ggplot(toy_regions) +
 ## ----sharp08, fig.width = 4, fig.height = 2.5, fig.align='center'-------------
 ggplot(grd_pred |> dplyr::filter(LAT == 0.8),
          aes(x = LON, y = SHARP)) +
-  geom_line(size = 1) +
+  geom_line(linewidth = 1) +
   ggtitle("Sharp Predictions at 0.8 degrees N") +
   theme_minimal()
 
@@ -293,7 +294,7 @@ ggplot(toy_regions) +
 ## ----smooth08, fig.width = 4, fig.height = 2.5, fig.align='center'------------
 ggplot(grd_pred |> dplyr::filter(LAT == 0.8),
          aes(x = LON, y = SMOOTH)) +
-  geom_line(size = 1) +
+  geom_line(linewidth = 1) +
   ggtitle("Smooth Predictions at 0.8 degrees N") +
   theme_minimal()
 
